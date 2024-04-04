@@ -2,6 +2,7 @@ package main
 
 import "encoding/json"
 
+// HOT POSTS
 type Children struct {
 	Data ChildData `json:"data"`
 }
@@ -20,8 +21,21 @@ type ChildData struct {
 	Created               json.Number `json:"created"`
 }
 
-type SubredditResponse struct {
+type HotPostsResponse struct {
 	Data struct {
 		Children []Children `json:"children"`
+	} `json:"data"`
+}
+
+// ABOUT
+type AboutResponse struct {
+	Data struct {
+		Title                 string      `json:"title"`
+		PrimaryColor          string      `json:"primary_color"`
+		BannerBackgroundColor string      `json:"banner_background_color"`
+		IconIMG               string      `json:"icon_img"`
+		DisplayNamePrefixed   string      `json:"display_name_prefixed"`
+		AccountsActive        json.Number `json:"accounts_active"`
+		PublicDescription     string      `json:"public_description"`
 	} `json:"data"`
 }

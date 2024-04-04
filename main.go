@@ -1,47 +1,84 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
-	"net/http"
+	// "log"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-// fetchSubredditPosts retrieves subreddit hot gosts.
-func fetchSubredditPosts(subreddit string) (*SubredditResponse, error) {
-	s := &http.Client{Timeout: time.Second * 8}
-	resp, err := s.Get(fmt.Sprintf("https://www.reddit.com/r/%s/hot.json", subreddit))
-	if err != nil {
-		return nil, fmt.Errorf("Failed to fetch subreddit posts: %v", err)
-	}
-	defer resp.Body.Close()
-
-	posts := SubredditResponse{}
-	if err := json.NewDecoder(resp.Body).Decode(&posts); err != nil {
-		return nil, fmt.Errorf("Failed to decode JSON response: %v", err)
-	}
-
-	return &SubredditResponse{Data: posts.Data}, nil
-}
-
 func main() {
-	posts, err := fetchSubredditPosts("diablo4")
-	if err != nil {
-		fmt.Printf("Error fetching subreddit posts: %v\n", err)
-		os.Exit(1)
-	}
+	subreddit := "diablo4"
+	// Create a wait group to wait for both goroutines to finish
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-	for _, post := range posts.Data.Children {
-		parts := strings.Split(post.Data.Created.String(), ".")
-		timestamp, err := strconv.ParseInt(parts[0], 10, 64)
+	// Channels to communicate results and errors
+	postsCh := make(chan *HotPostsResponse)
+	aboutCh := make(chan *AboutResponse)
+	errCh := make(chan error)
+
+	// Fetch hot posts concurrently
+	go func() {
+		defer wg.Done()
+		posts, err := FetchHotPosts(subreddit)
 		if err != nil {
-			log.Fatal(err)
+			errCh <- fmt.Errorf("Error fetching subreddit posts: %v", err)
+			return
 		}
-		t := time.Unix(timestamp, 0)
-		fmt.Printf("%s - %v\n", post.Data.Title, t)
+		postsCh <- posts
+	}()
+
+	// Fetch subreddit about concurrently
+	go func() {
+		defer wg.Done()
+		about, err := FetchAbout(subreddit)
+		if err != nil {
+			errCh <- fmt.Errorf("Error fetching subreddit about: %v", err)
+			return
+		}
+		aboutCh <- about
+	}()
+
+	// Wait for both goroutines to finish
+	go func() {
+		wg.Wait()
+		close(postsCh)
+		close(aboutCh)
+		close(errCh)
+	}()
+
+	// Handle results and errors
+	var posts *HotPostsResponse
+	var about *AboutResponse
+	var err error
+	for {
+		select {
+		case posts = <-postsCh:
+			// Process posts
+			for _, post := range posts.Data.Children {
+				parts := strings.Split(post.Data.Created.String(), ".")
+				timestamp, err := strconv.ParseInt(parts[0], 10, 64)
+				if err != nil {
+					fmt.Printf("Error parsing timestamp: %v\n", err)
+					continue
+				}
+				t := time.Unix(timestamp, 0)
+				fmt.Printf("%s - %v\n", post.Data.Title, t)
+			}
+		case about = <-aboutCh:
+			// Process about
+			fmt.Printf("\n%s\n%s\n", about.Data.Title, about.Data.PublicDescription)
+		case err = <-errCh:
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		// Exit loop when both posts and about are processed
+		if posts != nil && about != nil {
+			break
+		}
 	}
 }
